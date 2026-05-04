@@ -1,0 +1,57 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/anon_task?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=UTC}
+    driver-class-name: ${DB_DRIVER_CLASS_NAME:com.mysql.cj.jdbc.Driver}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:2s}
+      repositories:
+        enabled: false
+  rabbitmq:
+    host: ${RABBITMQ_HOST:127.0.0.1}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:}
+  mp:
+    allow-mock-login: false
+    app-id: ${WX_MP_APP_ID:}
+    app-secret: ${WX_MP_APP_SECRET:}
+  wxpay:
+    enabled: ${WXPAY_ENABLED:false}
+    mch-id: ${WXPAY_MCH_ID:}
+    api-v3-key: ${WXPAY_API_V3_KEY:}
+    serial-no: ${WXPAY_SERIAL_NO:}
+    private-key-path: ${WXPAY_PRIVATE_KEY_PATH:}
+    private-key: ${WXPAY_PRIVATE_KEY:}
+    notify-domain: ${WXPAY_NOTIFY_DOMAIN:}
+  jwt:
+    secret: ${APP_JWT_SECRET}
+  mq:
+    enabled: ${APP_MQ_ENABLED:false}
+    retry:
+      max-attempts: ${APP_MQ_RETRY_MAX_ATTEMPTS:3}
+      initial-interval-ms: ${APP_MQ_RETRY_INITIAL_INTERVAL_MS:1000}
+      multiplier: ${APP_MQ_RETRY_MULTIPLIER:2.0}
+      max-interval-ms: ${APP_MQ_RETRY_MAX_INTERVAL_MS:10000}
+
+logging:
+  file:
+    name: ${LOG_FILE:./logs/app.log}
+  level:
+    com.leiyang.anontask: ${APP_LOG_LEVEL:INFO}

@@ -1,0 +1,15 @@
+# 只保留 admin-web, backend, user-web
+target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+.DS_Store
+
+# 过滤其他所有文件夹（根目录下）
+/*
+!/admin-web
+!/backend
+!/user-web
+!.gitignore
