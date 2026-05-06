@@ -35,6 +35,7 @@ import {
   Zap,
 } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import QRCode from "qrcode";
 import { api, clearToken, fileUrl, getToken, setToken, upload } from "./api";
 import type {
   CommentItem,
@@ -194,6 +195,10 @@ const rechargeConfig = ref<RechargeConfig | null>(null);
 const rechargeAfterTask = ref(false);
 const rechargeAfterMusic = ref(false);
 const rechargeAfterPackage = ref(false);
+const rechargeQrDataUrl = ref("");
+const rechargeOutTradeNo = ref("");
+const rechargeQrStatus = ref<"pending" | "success" | "">("");
+let rechargePollTimer: ReturnType<typeof setInterval> | null = null;
 const packagePurchaseOpen = ref(false);
 const selectedMusicPackage = ref<MusicPackage | null>(null);
 const editProfileOpen = ref(false);
@@ -1912,25 +1917,79 @@ async function publishTask() {
   });
 }
 
+function closeRecharge() {
+  if (rechargePollTimer) {
+    clearInterval(rechargePollTimer);
+    rechargePollTimer = null;
+  }
+  rechargeOpen.value = false;
+  rechargeQrDataUrl.value = "";
+  rechargeOutTradeNo.value = "";
+  rechargeQrStatus.value = "";
+}
+
+function startRechargePoll() {
+  if (rechargePollTimer) clearInterval(rechargePollTimer);
+  rechargePollTimer = setInterval(async () => {
+    if (!rechargeOutTradeNo.value) return;
+    try {
+      const res = await api<{ status: string }>(`/api/mp/wallet/recharge/status/${rechargeOutTradeNo.value}`);
+      if (res.status === "SUCCESS") {
+        clearInterval(rechargePollTimer!);
+        rechargePollTimer = null;
+        rechargeQrStatus.value = "success";
+        closeRecharge();
+        showToast("充值成功");
+        await Promise.all([loadWallet(), loadWalletFlows()]);
+        if (rechargeAfterTask.value) {
+          rechargeAfterTask.value = false;
+          await publishTask();
+        } else if (rechargeAfterMusic.value) {
+          rechargeAfterMusic.value = false;
+          await generateMusic();
+        } else if (rechargeAfterPackage.value) {
+          rechargeAfterPackage.value = false;
+          await buyMusicPackage();
+        }
+      }
+    } catch {
+      // ignore poll errors
+    }
+  }, 2000);
+}
+
 async function completeRecharge() {
   if (!requireLogin()) return;
   if (!rechargeAmount.value || Number(rechargeAmount.value) <= 0) return showToast("请输入充值金额");
-  await runBusy(async () => {
-    await api("/api/mp/wallet/recharge/mock-success", { method: "POST", body: { amount: rechargeAmount.value } });
-    rechargeOpen.value = false;
-    showToast("充值成功");
-    await Promise.all([loadWallet(), loadWalletFlows()]);
-    if (rechargeAfterTask.value) {
-      rechargeAfterTask.value = false;
-      await publishTask();
-    } else if (rechargeAfterMusic.value) {
-      rechargeAfterMusic.value = false;
-      await generateMusic();
-    } else if (rechargeAfterPackage.value) {
-      rechargeAfterPackage.value = false;
-      await buyMusicPackage();
-    }
-  });
+  if (rechargeConfig.value?.channel === "WXPAY_NATIVE") {
+    await runBusy(async () => {
+      const res = await api<{ outTradeNo: string; codeUrl: string }>(
+        "/api/mp/wallet/recharge/native-prepay",
+        { method: "POST", body: { amount: rechargeAmount.value } }
+      );
+      rechargeOutTradeNo.value = res.outTradeNo;
+      rechargeQrDataUrl.value = await QRCode.toDataURL(res.codeUrl, { width: 200 });
+      rechargeQrStatus.value = "pending";
+      startRechargePoll();
+    });
+  } else {
+    await runBusy(async () => {
+      await api("/api/mp/wallet/recharge/mock-success", { method: "POST", body: { amount: rechargeAmount.value } });
+      closeRecharge();
+      showToast("充值成功");
+      await Promise.all([loadWallet(), loadWalletFlows()]);
+      if (rechargeAfterTask.value) {
+        rechargeAfterTask.value = false;
+        await publishTask();
+      } else if (rechargeAfterMusic.value) {
+        rechargeAfterMusic.value = false;
+        await generateMusic();
+      } else if (rechargeAfterPackage.value) {
+        rechargeAfterPackage.value = false;
+        await buyMusicPackage();
+      }
+    });
+  }
 }
 
 async function acceptTask(task?: TaskItem | TaskDetail | null) {
@@ -2732,18 +2791,27 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div v-if="rechargeOpen" class="overlay" @click.self="rechargeOpen = false">
+    <div v-if="rechargeOpen" class="overlay" @click.self="closeRecharge">
       <div class="sheet">
-        <button class="close" @click="rechargeOpen = false"><X :size="18" /></button>
+        <button class="close" @click="closeRecharge"><X :size="18" /></button>
         <h2>微信充值</h2>
         <div class="form">
-          <input v-model="rechargeAmount" type="number" min="0.01" step="0.01" placeholder="充值金额" />
-          <div class="info-box"><b>{{ rechargeConfig?.name || "平台收款" }}</b><p>目前仅支持微信扫码支付，支付完成后点下方按钮确认。</p></div>
-          <div v-if="rechargeConfig?.qrCodeUrl" class="preview-grid single">
-            <img :src="fileUrl(rechargeConfig.qrCodeUrl)" />
-          </div>
-          <div v-else class="empty">后台暂未配置平台收款码</div>
-          <button class="accent full" @click="completeRecharge">已完成微信支付</button>
+          <input v-if="!rechargeQrDataUrl" v-model="rechargeAmount" type="number" min="0.01" step="0.01" placeholder="充值金额" />
+          <template v-if="rechargeConfig?.channel === 'WXPAY_NATIVE'">
+            <div v-if="rechargeQrDataUrl" style="text-align:center">
+              <p style="margin-bottom:8px;font-size:13px;color:#666">请使用微信扫码完成支付，正在等待支付结果…</p>
+              <img :src="rechargeQrDataUrl" style="width:200px;height:200px" />
+            </div>
+            <button v-else class="accent full" @click="completeRecharge">生成支付二维码</button>
+          </template>
+          <template v-else>
+            <div class="info-box"><b>{{ rechargeConfig?.name || "平台收款" }}</b><p>目前仅支持微信扫码支付，支付完成后点下方按钮确认。</p></div>
+            <div v-if="rechargeConfig?.qrCodeUrl" class="preview-grid single">
+              <img :src="fileUrl(rechargeConfig.qrCodeUrl)" />
+            </div>
+            <div v-else class="empty">后台暂未配置平台收款码</div>
+            <button class="accent full" @click="completeRecharge">已完成微信支付</button>
+          </template>
         </div>
       </div>
     </div>
