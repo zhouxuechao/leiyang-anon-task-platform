@@ -201,7 +201,7 @@ onMounted(load);
       <button class="btn btn-ghost" @click="applyFilter">应用筛选</button>
     </div>
 
-    <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+    <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
       <table class="w-full text-sm">
         <thead class="bg-white/70 text-left text-xs text-slate-600">
           <tr>

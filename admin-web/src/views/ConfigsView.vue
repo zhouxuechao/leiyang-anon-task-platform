@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ImagePlus, Pencil, Plus, RefreshCw, Trash2 } from "lucide-vue-next";
+import { ImagePlus, Pencil, Plus, RefreshCw, Trash2, ToggleLeft, ToggleRight } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import AppCard from "../components/AppCard.vue";
 import AppModal from "../components/AppModal.vue";
@@ -11,9 +11,12 @@ import { toastErr, toastOk } from "../lib/toast";
 
 type ConfigItem = { id: number; key: string; value: string; remark?: string | null; updatedAt: string };
 type PageResp<T> = { page: number; size: number; total: number; items: T[] };
+type WxPayStatus = { sdkEnabled: boolean; rechargeEnabled: boolean };
 
 const onAuthFail = useAuthFailureHandler();
 const loading = ref(false);
+const wxPayStatus = ref<WxPayStatus | null>(null);
+const wxPaySwitchLoading = ref(false);
 const items = ref<ConfigItem[]>([]);
 const page = ref(1);
 const size = ref(20);
@@ -24,6 +27,30 @@ const editing = ref(false);
 const cfgKey = ref("limits.maxOngoingOrders");
 const cfgValue = ref("3");
 const cfgRemark = ref("Max ongoing orders per user");
+
+async function loadWxPayStatus() {
+  try {
+    wxPayStatus.value = await api<WxPayStatus>("/api/admin/configs/wxpay-status");
+  } catch (e: any) {
+    if (e?.message === "AUTH") return onAuthFail();
+  }
+}
+
+async function toggleWxPayRecharge() {
+  if (!wxPayStatus.value) return;
+  const newVal = !wxPayStatus.value.rechargeEnabled;
+  try {
+    wxPaySwitchLoading.value = true;
+    await api<void>("/api/admin/configs/wxpay-recharge-switch", { method: "POST", body: { enabled: newVal } });
+    wxPayStatus.value = { ...wxPayStatus.value, rechargeEnabled: newVal };
+    toastOk(newVal ? "微信支付充值已开启" : "微信支付充值已关闭");
+  } catch (e: any) {
+    if (e?.message === "AUTH") return onAuthFail();
+    toastErr("操作失败", (e as any)?.message || "");
+  } finally {
+    wxPaySwitchLoading.value = false;
+  }
+}
 
 async function load() {
   try {
@@ -109,10 +136,40 @@ async function del(id: number) {
   }
 }
 
-onMounted(load);
+onMounted(() => { load(); loadWxPayStatus(); });
 </script>
 
 <template>
+  <AppCard class="mb-5">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <div class="text-sm font-semibold text-slate-600">微信支付</div>
+        <div class="mt-1 text-lg font-semibold text-slate-900">充值通道开关</div>
+      </div>
+      <button class="btn btn-ghost" @click="loadWxPayStatus"><RefreshCw class="h-4 w-4" /> 刷新</button>
+    </div>
+    <div class="mt-4 flex flex-wrap items-center gap-6">
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-slate-700">SDK 状态（env WXPAY_ENABLED）</span>
+        <TagPill :tone="wxPayStatus?.sdkEnabled ? 'ok' : 'warn'" :text="wxPayStatus?.sdkEnabled ? '已启用' : '未启用'" />
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-slate-700">Native 扫码充值开关</span>
+        <TagPill :tone="wxPayStatus?.rechargeEnabled ? 'ok' : 'neutral'" :text="wxPayStatus?.rechargeEnabled ? '开启中' : '关闭中'" />
+        <button
+          class="btn"
+          :class="wxPayStatus?.rechargeEnabled ? 'btn-ghost' : 'btn-primary'"
+          :disabled="wxPaySwitchLoading || !wxPayStatus?.sdkEnabled"
+          @click="toggleWxPayRecharge"
+        >
+          <component :is="wxPayStatus?.rechargeEnabled ? ToggleRight : ToggleLeft" class="h-4 w-4" />
+          {{ wxPayStatus?.rechargeEnabled ? '关闭' : '开启' }}
+        </button>
+        <span v-if="!wxPayStatus?.sdkEnabled" class="text-xs text-slate-500">（需先在环境变量开启 SDK）</span>
+      </div>
+    </div>
+  </AppCard>
+
   <AppCard>
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -126,7 +183,7 @@ onMounted(load);
       </div>
     </div>
 
-    <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+    <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
       <table class="w-full text-sm">
         <thead class="bg-white/70 text-left text-xs text-slate-600">
           <tr>

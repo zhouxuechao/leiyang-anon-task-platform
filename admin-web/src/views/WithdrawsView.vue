@@ -64,6 +64,7 @@ const paying = ref(false);
 const rejectOpen = ref(false);
 const rejectNo = ref("");
 const rejectReason = ref("");
+const autoPayLoading = ref<string | null>(null);
 
 async function load() {
   try {
@@ -192,6 +193,21 @@ async function doPayComplete() {
   }
 }
 
+async function doAutoPay(item: PendingWithdraw) {
+  if (!confirm(`确认通过微信商家转账向用户打款 ${fmtMoney(item.amount)}？此操作将直接发起转账，请谨慎确认。`)) return;
+  try {
+    autoPayLoading.value = item.applyNo;
+    await api<void>(`/api/admin/withdraws/${encodeURIComponent(item.applyNo)}/auto-pay`, { method: "POST" });
+    toastOk("微信转账已发起，已闭环");
+    await Promise.all([load(), loadStats(), loadRecords(true)]);
+  } catch (e: any) {
+    if (e?.message === "AUTH") return onAuthFail();
+    toastErr("微信打款失败", e?.message || "");
+  } finally {
+    autoPayLoading.value = null;
+  }
+}
+
 function openReject(applyNo: string) {
   rejectNo.value = applyNo;
   rejectReason.value = "";
@@ -249,7 +265,7 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+    <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
       <table class="w-full text-sm">
         <thead class="bg-white/70 text-left text-xs text-slate-600">
           <tr>
@@ -278,6 +294,9 @@ onMounted(refreshAll);
               <div class="flex items-center gap-2">
                 <button class="btn btn-ghost" @click="openReject(w.applyNo)"><X class="h-4 w-4" /> 驳回</button>
                 <button class="btn btn-success" @click="openPay(w)"><Check class="h-4 w-4" /> 打款</button>
+                <button class="btn btn-primary" :disabled="autoPayLoading === w.applyNo" @click="doAutoPay(w)">
+                  <Wallet class="h-4 w-4" /> {{ autoPayLoading === w.applyNo ? '转账中...' : '微信打款' }}
+                </button>
               </div>
             </td>
           </tr>
@@ -309,7 +328,7 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+    <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
       <table class="w-full text-sm">
         <thead class="bg-white/70 text-left text-xs text-slate-600">
           <tr>

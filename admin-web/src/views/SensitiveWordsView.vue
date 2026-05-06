@@ -117,7 +117,7 @@ onMounted(load);
         <TagPill tone="info" :text="String(total) + ' 条'" />
       </div>
 
-      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
         <table class="w-full text-sm">
           <thead class="bg-white/70 text-left text-xs text-slate-600">
             <tr>

@@ -295,7 +295,7 @@ onMounted(load);
           <button class="btn btn-primary" @click="openCategory()"><Plus class="h-4 w-4" /> 新增分类</button>
         </div>
       </div>
-      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
         <table class="w-full text-sm">
           <thead class="bg-white/70 text-left text-xs text-slate-600">
             <tr>
@@ -332,7 +332,7 @@ onMounted(load);
         <div class="text-lg font-semibold text-slate-900">AI提供商统一管理（展示 + 运行参数）</div>
         <button class="btn btn-primary" @click="openProvider()"><Plus class="h-4 w-4" /> 新增AI</button>
       </div>
-      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
         <table class="w-full text-sm">
           <thead class="bg-white/70 text-left text-xs text-slate-600">
             <tr>
@@ -382,7 +382,7 @@ onMounted(load);
         <div class="text-lg font-semibold text-slate-900">广场排序项管理（热门/最新/关注）</div>
         <button class="btn btn-primary" @click="openSort()"><Plus class="h-4 w-4" /> 新增排序项</button>
       </div>
-      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white/60">
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200/70 bg-white/60">
         <table class="w-full text-sm">
           <thead class="bg-white/70 text-left text-xs text-slate-600">
             <tr>
