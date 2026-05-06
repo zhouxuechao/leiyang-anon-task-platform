@@ -5,7 +5,9 @@ import com.leiyang.anontask.common.BizException;
 import com.leiyang.anontask.domain.SysConfig;
 import com.leiyang.anontask.dto.admin.PageResponse;
 import com.leiyang.anontask.repo.SysConfigRepository;
+import com.leiyang.anontask.service.ConfigService;
 import com.leiyang.anontask.service.RedisSupportService;
+import com.leiyang.anontask.service.WxPayService;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -26,10 +28,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminConfigController {
   private final SysConfigRepository repo;
   private final RedisSupportService redisSupport;
+  private final WxPayService wxPayService;
+  private final ConfigService configService;
 
-  public AdminConfigController(SysConfigRepository repo, RedisSupportService redisSupport) {
+  public AdminConfigController(SysConfigRepository repo, RedisSupportService redisSupport,
+      WxPayService wxPayService, ConfigService configService) {
     this.repo = repo;
     this.redisSupport = redisSupport;
+    this.wxPayService = wxPayService;
+    this.configService = configService;
   }
 
   public record ConfigItem(long id, String key, String value, String remark, String updatedAt) {}
@@ -87,6 +94,30 @@ public class AdminConfigController {
       c.setCfgValue(req.value());
     }
     c.setRemark(req.remark());
+    c.setUpdatedAt(Instant.now());
+    repo.save(c);
+    clearPublicCaches();
+    return ApiResult.ok(null);
+  }
+
+  public record WxPayStatus(boolean sdkEnabled, boolean rechargeEnabled) {}
+  public record WxPaySwitchReq(boolean enabled) {}
+
+  @GetMapping("/wxpay-status")
+  public ApiResult<WxPayStatus> wxpayStatus() {
+    return ApiResult.ok(new WxPayStatus(
+        wxPayService.isEnabled(),
+        configService.getBoolean("wxpay.recharge.enabled", false)
+    ));
+  }
+
+  @PostMapping("/wxpay-recharge-switch")
+  @Transactional
+  public ApiResult<Void> setRechargeSwitch(@RequestBody WxPaySwitchReq req) {
+    SysConfig c = repo.findByCfgKey("wxpay.recharge.enabled").orElseGet(SysConfig::new);
+    c.setCfgKey("wxpay.recharge.enabled");
+    c.setCfgValue(req.enabled() ? "1" : "0");
+    c.setRemark("微信支付充值开关（1=Native扫码支付，0=手动扫码转账）");
     c.setUpdatedAt(Instant.now());
     repo.save(c);
     clearPublicCaches();

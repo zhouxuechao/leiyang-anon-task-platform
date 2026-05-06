@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -58,6 +59,8 @@ public class MpWalletController {
   public record SaveQrReq(@NotBlank(message = "qrCodeUrl is required") String qrCodeUrl) {}
   public record RechargeConfig(String channel, String qrCodeUrl, String name) {}
   public record PrepayResp(String timeStamp, String nonceStr, String packageVal, String signType, String paySign) {}
+  public record NativePrepayResp(String outTradeNo, String codeUrl) {}
+  public record RechargeStatusResp(String status) {}
   public record RechargeReq(@DecimalMin(value = "0.01", message = "amount must be greater than 0") BigDecimal amount) {}
   public record FlowItem(String type, BigDecimal amount, String bizNo, String status, Instant createdAt, String label) {}
 
@@ -113,8 +116,10 @@ public class MpWalletController {
 
   @GetMapping("/recharge-config")
   public ApiResult<RechargeConfig> rechargeConfig() {
-    // 微信支付已启用时，channel 返回 WXPAY，小程序可据此显示支付按钮
-    String channel = wxPayService.isEnabled() ? "WXPAY" : "WECHAT";
+    // WXPAY_ENABLED + 后台开关同时打开 → Native 扫码支付；否则 → 展示收款码
+    boolean nativeEnabled = wxPayService.isEnabled()
+        && configService.getBoolean("wxpay.recharge.enabled", false);
+    String channel = nativeEnabled ? "WXPAY_NATIVE" : "WECHAT";
     return ApiResult.ok(new RechargeConfig(
         channel,
         configService.getString("recharge.wechat.qr_url", ""),
@@ -135,9 +140,32 @@ public class MpWalletController {
         resp.getTimeStamp(),
         resp.getNonceStr(),
         resp.getPackageVal(),
-        resp.getSignType() == null ? "RSA" : resp.getSignType().name(),
+        resp.getSignType() == null ? "RSA" : resp.getSignType().toString(),
         resp.getPaySign()
     ));
+  }
+
+  /** Native 扫码支付：创建订单并返回 code_url，前端转成二维码后轮询状态 */
+  @PostMapping("/recharge/native-prepay")
+  public ApiResult<NativePrepayResp> nativeRechargePrepay(@Valid @RequestBody RechargeReq req) {
+    if (!wxPayService.isEnabled()) {
+      throw new BizException("微信支付未启用，请联系管理员");
+    }
+    long userId = SecurityUtil.requireMpUserId();
+    var user = userService.requireUser(userId);
+    var resp = wxPayService.createNativeRechargeOrder(user, req.amount());
+    return ApiResult.ok(new NativePrepayResp(resp.outTradeNo(), resp.codeUrl()));
+  }
+
+  /** 查询充值订单状态，供前端轮询使用 */
+  @GetMapping("/recharge/status/{outTradeNo}")
+  public ApiResult<RechargeStatusResp> rechargeStatus(@PathVariable String outTradeNo) {
+    long userId = SecurityUtil.requireMpUserId();
+    var order = wxPayService.findRechargeOrder(outTradeNo);
+    if (!order.getUser().getId().equals(userId)) {
+      throw new BizException("订单不存在");
+    }
+    return ApiResult.ok(new RechargeStatusResp(order.getStatus()));
   }
 
   @PostMapping("/recharge/mock-success")

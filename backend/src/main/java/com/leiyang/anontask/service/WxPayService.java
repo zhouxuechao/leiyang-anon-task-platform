@@ -16,6 +16,7 @@ import com.wechat.pay.java.service.payments.jsapi.model.Payer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayWithRequestPaymentResponse;
 import com.wechat.pay.java.service.payments.model.Transaction;
+import com.wechat.pay.java.service.payments.nativepay.NativePayService;
 import com.wechat.pay.java.service.transferbatch.TransferBatchService;
 import com.wechat.pay.java.service.transferbatch.model.InitiateBatchTransferRequest;
 import com.wechat.pay.java.service.transferbatch.model.InitiateBatchTransferResponse;
@@ -43,6 +44,8 @@ public class WxPayService {
     this.props = props;
     this.rechargeOrderRepo = rechargeOrderRepo;
   }
+
+  public record NativePayResp(String outTradeNo, String codeUrl) {}
 
   public boolean isEnabled() {
     AppProperties.WxPay c = props.wxpay();
@@ -89,6 +92,49 @@ public class WxPayService {
       return resp;
     } catch (Exception e) {
       log.error("wxpay_jsapi_prepay_failed outTradeNo={}", outTradeNo, e);
+      throw new BizException("创建微信支付订单失败：" + e.getMessage());
+    }
+  }
+
+  /**
+   * 创建 Native 扫码支付订单（PC端使用），返回 code_url 供前端渲染成二维码。
+   * 回调地址与 JSAPI 共用 /api/public/wxpay/recharge-notify。
+   */
+  @Transactional
+  public NativePayResp createNativeRechargeOrder(UserAccount user, BigDecimal amount) {
+    int amountFen = toFen(amount);
+    String outTradeNo = NoGenerator.gen("R");
+
+    RechargeOrder order = new RechargeOrder();
+    order.setOutTradeNo(outTradeNo);
+    order.setUser(user);
+    order.setAmountFen(amountFen);
+    order.setStatus(RechargeOrder.STATUS_PENDING);
+    rechargeOrderRepo.save(order);
+
+    AppProperties.WxPay cfg = props.wxpay();
+    com.wechat.pay.java.service.payments.nativepay.model.PrepayRequest req =
+        new com.wechat.pay.java.service.payments.nativepay.model.PrepayRequest();
+    req.setAppid(props.mp().appId());
+    req.setMchid(cfg.mchId());
+    req.setDescription("钱包充值");
+    req.setOutTradeNo(outTradeNo);
+    req.setNotifyUrl(cfg.notifyDomain() + "/api/public/wxpay/recharge-notify");
+    com.wechat.pay.java.service.payments.nativepay.model.Amount amountObj =
+        new com.wechat.pay.java.service.payments.nativepay.model.Amount();
+    amountObj.setTotal(amountFen);
+    req.setAmount(amountObj);
+
+    try {
+      NativePayService service = new NativePayService.Builder()
+          .config(getConfig())
+          .build();
+      com.wechat.pay.java.service.payments.nativepay.model.PrepayResponse resp =
+          service.prepay(req);
+      log.info("wxpay_native_prepay outTradeNo={} userId={} amountFen={}", outTradeNo, user.getId(), amountFen);
+      return new NativePayResp(outTradeNo, resp.getCodeUrl());
+    } catch (Exception e) {
+      log.error("wxpay_native_prepay_failed outTradeNo={}", outTradeNo, e);
       throw new BizException("创建微信支付订单失败：" + e.getMessage());
     }
   }
@@ -146,7 +192,7 @@ public class WxPayService {
 
     TransferDetailInput detail = new TransferDetailInput();
     detail.setOutDetailNo(outDetailNo);
-    detail.setTransferAmount(amountFen);
+    detail.setTransferAmount((long) amountFen);
     detail.setTransferRemark(remark);
     detail.setOpenid(openId);
 
@@ -155,7 +201,7 @@ public class WxPayService {
     req.setOutBatchNo(outBatchNo);
     req.setBatchName("平台提现");
     req.setBatchRemark(remark);
-    req.setTotalAmount(amountFen);
+    req.setTotalAmount((long) amountFen);
     req.setTotalNum(1);
     req.setTransferDetailList(List.of(detail));
 
